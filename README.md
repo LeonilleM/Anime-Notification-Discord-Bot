@@ -16,11 +16,15 @@ Your **Application ID** and **public key** are stored in `discord_app.py` (they 
 6. **Server:** Join **[Leo’s server](https://discord.gg/sAugS5rK)** (or use any server where you can add the bot).
 7. **Add the bot** to that server (same app as in `discord_app.py`):
 
-   ```text
-   https://discord.com/oauth2/authorize?client_id=1491310298735312976&permissions=84992&scope=bot
+   Use the invite from code (includes **`applications.commands`** for slash commands):
+
+   ```bash
+   python -c "from discord_app import bot_invite_url; print(bot_invite_url())"
    ```
 
-   Or: `python -c "from discord_app import bot_invite_url; print(bot_invite_url())"`
+   If the bot was invited before slash commands existed, **open that URL again** and authorize so **`scope` includes `applications.commands`**.
+
+   Optional: set **`DISCORD_GUILD_ID`** in `.env` (right‑click server → Copy Server ID) so slash commands sync **immediately** in that server; otherwise global sync can take up to ~1 hour.
 
    After the bot is in the server, you can **right‑click it in the member list → Message** to open DMs, or use a text channel for `!` commands.
 
@@ -34,6 +38,24 @@ cp .env.example .env   # if you don’t already have one
 python DiscordBot.py
 ```
 
+### Docker
+
+```bash
+docker build -t anime-bot .
+docker run --rm --env-file .env anime-bot
+```
+
+Mount a custom `config.json` if needed: `-v "$(pwd)/config.json:/app/config.json:ro"`.
+
+### Tests & CI
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+GitHub Actions runs the same on pushes and PRs to `main` / `master` (`.github/workflows/ci.yml`).
+
 ### Environment (`.env`)
 
 | Variable | Required | Purpose |
@@ -41,8 +63,34 @@ python DiscordBot.py
 | `TOKEN` | Yes | Bot token from the portal (**secret**). |
 | `DISCORD_DM_USER_ID` | One of two | Your user ID — bot sends episode alerts to your **DMs**. |
 | `DISCORD_CHANNEL_ID` | One of two | Text channel ID — bot posts there instead. |
+| `DISCORD_GUILD_ID` | No | Server ID — if set, slash commands sync to this guild instantly. |
 
 If both are set, **DMs** win for notifications.
+
+### Slash commands (type `/` in chat)
+
+| Command | What it does |
+|---------|----------------|
+| `/track` | Same as `!track` — add title + Jikan card. |
+| `/lookup` | Same as `!lookup` — details only. |
+| `/list` | Same as `!list` / `!tracked`. |
+| `/ping` | Same as `!ping` — gateway latency (ms). |
+
+### Prefix commands (`!`)
+
+| Command | What it does |
+|---------|----------------|
+| `!help` / `!commands` | Lists commands. |
+| `!track` / `!untrack` | Save or remove a title in `config.json`. |
+| `!list` / `!tracked` | List all saved titles. |
+| `!addg` / `!removeg` | Genre filters for the `!test` notify loop. |
+| `!filters` | Show current genre filters. |
+| `!filters clear` | Remove all genre filters. |
+| `!lookup <name>` | Jikan details only — does not save. Aliases like `jjk` work. |
+| `!season <year> <season>` | e.g. `!season 2026 spring`. |
+| `!airing` | Top airing TV (Jikan). |
+| `!test` | Demo: two fake episode embeds after ~1 minute. |
+| `!ping` | Gateway latency (ms). |
 
 ### Troubleshooting
 
@@ -69,6 +117,7 @@ python scripts/enrich_title.py "Jujutsu Kaisen" --url https://www.crunchyroll.co
 | `jikan_client.py` | Rate-limited Jikan HTTP client |
 | `helper.py` | Config JSON, filters, schedule helpers |
 | `models.py` | `Anime` dataclass |
+| `parsing.py` | Small pure helpers (e.g. season arg parsing) |
 | `config.json` | `tracking` names + `filters` genres |
 
 ## Legacy note

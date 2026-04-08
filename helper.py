@@ -134,6 +134,8 @@ def apply_jikan_anime_payload(anime: Anime, data: dict[str, Any]) -> bool:
 
     ep = data.get("episodes")
     anime.episode = ep if isinstance(ep, int) else None
+    if data.get("title"):
+        anime.name = data["title"]
     return True
 
 
@@ -170,6 +172,12 @@ def remove_filter(genre: str) -> bool:
     data["filters"].remove(genre)
     _save_config(data)
     return True
+
+
+def clear_filters() -> None:
+    data = _load_config()
+    data["filters"] = []
+    _save_config(data)
 
 
 def remove_tracked(anime_name: str) -> bool:

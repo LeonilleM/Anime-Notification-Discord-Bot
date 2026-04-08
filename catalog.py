@@ -4,6 +4,7 @@ Build anime lists from a saved Crunchyroll browse page and/or Jikan (api.jikan.m
 from __future__ import annotations
 
 import datetime
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -13,8 +14,39 @@ import jikan_client
 from helper import apply_jikan_anime_payload
 from models import Anime
 
+log = logging.getLogger(__name__)
+
+# Short user queries → extra Jikan search terms (API often misses 2–3 letter strings).
+SEARCH_ALIASES: dict[str, str] = {
+    "jjk": "Jujutsu Kaisen",
+    "jujutsu": "Jujutsu Kaisen",
+    "mha": "Boku no Hero Academia",
+    "bnha": "Boku no Hero Academia",
+    "op": "One Piece",
+    "aot": "Attack on Titan",
+    "csm": "Chainsaw Man",
+    "rezero": "Re:Zero kara Hajimeru Isekai Seikatsu",
+    "slime": "Tensei shitara Slime Datta Ken",
+}
+
 _ROOT = Path(__file__).resolve().parent
 DEFAULT_CRUNCHYROLL_SNAPSHOT = _ROOT / "Crunchyroll.html"
+
+
+def _search_queries(raw: str) -> list[str]:
+    q = raw.strip()
+    out: list[str] = []
+    key = q.lower()
+    if key in SEARCH_ALIASES:
+        out.append(SEARCH_ALIASES[key])
+    out.append(q)
+    seen: set[str] = set()
+    unique: list[str] = []
+    for s in out:
+        if s not in seen:
+            seen.add(s)
+            unique.append(s)
+    return unique
 
 
 class AnimeCatalog:
@@ -88,10 +120,41 @@ class AnimeCatalog:
                 or (r.get("title_english") or "").lower() == name_l
             ):
                 return r.get("mal_id")
+        # Short / acronym queries: prefer TV whose title contains the query
+        if len(name_l) <= 4 and name_l.isalpha():
+            for r in results:
+                if (r.get("type") or "").lower() != "tv":
+                    continue
+                for key in ("title", "title_english"):
+                    t = (r.get(key) or "").lower()
+                    if name_l in t or t.startswith(name_l):
+                        return r.get("mal_id")
         for r in results:
             if (r.get("type") or "").lower() == "tv":
                 return r.get("mal_id")
         return results[0].get("mal_id")
+
+    def _anime_search_results(self, name: str) -> list[dict[str, Any]]:
+        """Try alias-expanded queries, TV-only first, then any type."""
+        for query in _search_queries(name):
+            for type_ in ("tv", None):
+                label = "tv" if type_ else "any"
+                try:
+                    rows = jikan_client.anime_search(query, limit=15, type_=type_)
+                except Exception as exc:
+                    log.warning("jikan anime_search failed query=%r type=%s: %s", query, label, exc)
+                    continue
+                if rows:
+                    log.info(
+                        "jikan search ok query=%r type=%s count=%s first=%r",
+                        query,
+                        label,
+                        len(rows),
+                        (rows[0].get("title") or "")[:60],
+                    )
+                    return rows
+        log.warning("jikan search: no results for %r (tried aliases + tv/any)", name)
+        return []
 
     def resolve_latest_airing_sequel(self, start_mal_id: int) -> int:
         """Follow TV sequels while the current entry is still airing."""
@@ -115,15 +178,26 @@ class AnimeCatalog:
 
     def _enrich_from_jikan(self, show: Anime) -> bool:
         try:
-            results = jikan_client.anime_search(show.name, limit=8, type_="tv")
+            results = self._anime_search_results(show.name)
             mal_id = self._pick_search_result(show.name, results)
             if not mal_id:
+                log.warning("pick_search_result: no mal_id for query %r", show.name)
                 return False
+            log.info("picked mal_id=%s for query %r", mal_id, show.name)
             mal_id = self.resolve_latest_airing_sequel(mal_id)
             data = jikan_client.anime_full(mal_id)
         except Exception:
+            log.exception("jikan chain failed for query %r", show.name)
             return False
-        return apply_jikan_anime_payload(show, data)
+        ok = apply_jikan_anime_payload(show, data)
+        if not ok:
+            log.warning(
+                "apply_jikan_anime_payload failed mal_id=%s (need TV + MAL broadcast fields)",
+                mal_id,
+            )
+        else:
+            log.info("enriched ok title=%r mal_id=%s", show.name, mal_id)
+        return ok
 
 
 def _first_sequel_anime_id(data: dict[str, Any]) -> int | None:
