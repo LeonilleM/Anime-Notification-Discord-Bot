@@ -2,27 +2,44 @@ import asyncio
 import logging
 import os
 import sys
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+_ROOT = Path(__file__).resolve().parent
+load_dotenv(_ROOT / ".env")
 
 import discord
 from discord import app_commands
 from discord.ext import tasks
-from dotenv import load_dotenv
 
 import helper
 import jikan_client
 from catalog import AnimeCatalog, sample_dummy_shows
 from models import Anime
-from discord_app import APPLICATION_ID, bot_invite_url
 from helper import filter_by_genre, get_filters, get_last_episode, just_aired, rating_stars_display
 from parsing import parse_season_args
-
-load_dotenv()
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(levelname)s [%(name)s] %(message)s",
 )
 log = logging.getLogger(__name__)
+
+_INVITE_PERMS = 84992  # View Channel, Send Messages, Embed Links, Read Message History
+
+
+def _bot_invite_url() -> str:
+    """OAuth URL with `applications.commands`; needs `DISCORD_APPLICATION_ID` in `.env`."""
+    app_id = (os.environ.get("DISCORD_APPLICATION_ID") or "").strip()
+    if not app_id:
+        return "(set DISCORD_APPLICATION_ID in `.env` for a direct invite link)"
+    return (
+        f"https://discord.com/oauth2/authorize"
+        f"?client_id={app_id}&permissions={_INVITE_PERMS}"
+        f"&scope=bot%20applications.commands"
+    )
+
 
 REFRESH_RATE = 10
 
@@ -36,7 +53,7 @@ if DM_USER_ID is None and CHANNEL_ID is None:
     log.error(
         "Set DISCORD_DM_USER_ID (your user ID for DMs) or DISCORD_CHANNEL_ID in `.env` — see `.env.example`."
     )
-    log.error("Invite the bot: %s", bot_invite_url())
+    log.error("Invite the bot: %s", _bot_invite_url())
     sys.exit(1)
 if DM_USER_ID is not None and CHANNEL_ID is not None:
     log.warning(
@@ -553,9 +570,11 @@ async def on_message(message: discord.Message) -> None:
 
 
 def main() -> None:
-    token = os.environ.get("TOKEN")
+    # Bot token: `TOKEN` in gitignored `.env` (see above), shell `export`, or Docker `-e`. Never hardcode.
+    load_dotenv(_ROOT / ".env")
+    token = (os.environ.get("TOKEN") or "").strip()
     if not token:
-        log.error("Set TOKEN in the environment.")
+        log.error("Set TOKEN in `.env` or the environment (see `.env.example`).")
         sys.exit(1)
     client.run(token)
 

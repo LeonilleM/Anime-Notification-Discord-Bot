@@ -4,23 +4,24 @@ Discord bot that can remind a channel when tracked anime airs, with metadata fro
 
 ## One-time Discord setup
 
-Your **Application ID** and **public key** are stored in `discord_app.py` (they are public). The **bot token** is secret — it goes only in `.env`.
+Put **Application ID** (General Information) and **bot token** (Bot page) in **`.env`** — see `.env.example`. Only **`TOKEN`** is secret; the Application ID is public.
 
 1. **[Developer Portal](https://discord.com/developers/applications)** → open your application.
-2. **Bot** → create the bot user if needed → under **Privileged Gateway Intents**, turn **Message Content Intent** **ON** → **Save Changes**. (Required or you’ll get `PrivilegedIntentsRequired` when starting the bot.)
-3. **Bot** → **Reset / Copy** the token (you will paste it into `.env` as `TOKEN`).
-4. In Discord: **User Settings → Advanced → Developer Mode** → **ON**.
-5. **Where notifications go** (pick one):
+2. **General Information** → copy **Application ID** into `.env` as `DISCORD_APPLICATION_ID`.
+3. **Bot** → create the bot user if needed → under **Privileged Gateway Intents**, turn **Message Content Intent** **ON** → **Save Changes**. (Required or you’ll get `PrivilegedIntentsRequired` when starting the bot.)
+4. **Bot** → **Reset / Copy** the token (paste into `.env` as `TOKEN`).
+5. In Discord: **User Settings → Advanced → Developer Mode** → **ON**.
+6. **Where notifications go** (pick one):
    - **DMs (recommended to try first):** enable Developer Mode → right‑click **your avatar** → **Copy User ID** → put it in `.env` as `DISCORD_DM_USER_ID`. After the bot is online, **send the bot any message once** so Discord opens the DM channel.
    - **Server channel:** right‑click the **text channel** → **Copy channel ID** → `DISCORD_CHANNEL_ID` (leave `DISCORD_DM_USER_ID` empty).
-6. **Server:** Join **[Leo’s server](https://discord.gg/sAugS5rK)** (or use any server where you can add the bot).
-7. **Add the bot** to that server (same app as in `discord_app.py`):
+7. **Server:** Join **[Leo’s server](https://discord.gg/sAugS5rK)** (or use any server where you can add the bot).
+8. **Add the bot** to that server (same application as `DISCORD_APPLICATION_ID` in `.env`):
 
-   Use the invite from code (includes **`applications.commands`** for slash commands):
+   Build an invite URL (replace `YOUR_APP_ID` with `DISCORD_APPLICATION_ID` from `.env`):
 
-   ```bash
-   python -c "from discord_app import bot_invite_url; print(bot_invite_url())"
-   ```
+   `https://discord.com/oauth2/authorize?client_id=YOUR_APP_ID&permissions=84992&scope=bot%20applications.commands`
+
+   Or use **OAuth2 → URL Generator** in the Developer Portal (enable **`bot`** and **`applications.commands`**).
 
    If the bot was invited before slash commands existed, **open that URL again** and authorize so **`scope` includes `applications.commands`**.
 
@@ -34,7 +35,7 @@ Your **Application ID** and **public key** are stored in `discord_app.py` (they 
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env   # if you don’t already have one
-# Edit .env: TOKEN and DISCORD_DM_USER_ID (or DISCORD_CHANNEL_ID)
+# Edit .env: DISCORD_APPLICATION_ID, TOKEN, DISCORD_DM_USER_ID (or DISCORD_CHANNEL_ID)
 python DiscordBot.py
 ```
 
@@ -60,6 +61,7 @@ GitHub Actions runs the same on pushes and PRs to `main` / `master` (`.github/wo
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
+| `DISCORD_APPLICATION_ID` | Yes | Application ID (General Information) — used for the invite link in error logs. |
 | `TOKEN` | Yes | Bot token from the portal (**secret**). |
 | `DISCORD_DM_USER_ID` | One of two | Your user ID — bot sends episode alerts to your **DMs**. |
 | `DISCORD_CHANNEL_ID` | One of two | Text channel ID — bot posts there instead. |
@@ -111,8 +113,7 @@ python scripts/enrich_title.py "Jujutsu Kaisen" --url https://www.crunchyroll.co
 
 | Module | Role |
 |--------|------|
-| `DiscordBot.py` | Commands, embeds, notification loop |
-| `discord_app.py` | Application ID, invite URL helper, public key (for future HTTP interactions) |
+| `DiscordBot.py` | Commands, embeds, notification loop, invite URL helper |
 | `catalog.py` | Crunchyroll HTML snapshot + Jikan enrichment |
 | `jikan_client.py` | Rate-limited Jikan HTTP client |
 | `helper.py` | Config JSON, filters, schedule helpers |
