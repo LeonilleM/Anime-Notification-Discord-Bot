@@ -18,9 +18,10 @@ def bot_invite_url(
 ) -> str:
     """
     Default permissions: View Channel, Send Messages, Embed Links, Read Message History.
-    Tweak in the Developer Portal URL Generator if you need more.
+    `applications.commands` is required for slash commands (re-invite if you added them later).
     """
     return (
         f"https://discord.com/oauth2/authorize"
-        f"?client_id={APPLICATION_ID}&permissions={permissions}&scope=bot"
+        f"?client_id={APPLICATION_ID}&permissions={permissions}"
+        f"&scope=bot%20applications.commands"
     )
