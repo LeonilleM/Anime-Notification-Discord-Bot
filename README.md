@@ -1,36 +1,76 @@
-# Anime-Notification-Discord-Bot
+# Anime Notification Discord Bot
 
-<img src="img/capture.PNG">
+Discord bot that can remind a channel when tracked anime airs, with metadata from **[Jikan](https://jikan.moe/)** (unofficial MyAnimeList API).
 
-# Project Goals
-Create a live-time notification bot that lets users know when a new episode of their favorite show is available to view.
-- Learn how to use web scraping tools in Python
-- Learn how to make a Discord bot in Python
+## One-time Discord setup
 
-# User Experience Example
-1) Live demo during presentation
-2) You can find all the data we collected from webscraping in the _"Web Scraped Data.txt"_ file in the repo
+Your **Application ID** and **public key** are stored in `discord_app.py` (they are public). The **bot token** is secret — it goes only in `.env`.
 
-# Implementation Details
+1. **[Developer Portal](https://discord.com/developers/applications)** → open your application.
+2. **Bot** → create the bot user if needed → under **Privileged Gateway Intents**, turn **Message Content Intent** **ON** → **Save Changes**. (Required or you’ll get `PrivilegedIntentsRequired` when starting the bot.)
+3. **Bot** → **Reset / Copy** the token (you will paste it into `.env` as `TOKEN`).
+4. In Discord: **User Settings → Advanced → Developer Mode** → **ON**.
+5. **Where notifications go** (pick one):
+   - **DMs (recommended to try first):** enable Developer Mode → right‑click **your avatar** → **Copy User ID** → put it in `.env` as `DISCORD_DM_USER_ID`. After the bot is online, **send the bot any message once** so Discord opens the DM channel.
+   - **Server channel:** right‑click the **text channel** → **Copy channel ID** → `DISCORD_CHANNEL_ID` (leave `DISCORD_DM_USER_ID` empty).
+6. **Server:** Join **[Leo’s server](https://discord.gg/sAugS5rK)** (or use any server where you can add the bot).
+7. **Add the bot** to that server (same app as in `discord_app.py`):
 
-**Language:** Python
-## Modules:
-- `beautifulsoup4`
-- `lxml`
-- `google`
-- `requests`
-- `discord.py`
+   ```text
+   https://discord.com/oauth2/authorize?client_id=1491310298735312976&permissions=84992&scope=bot
+   ```
 
-Used _"requests"_, _"beatifulsoup4"_. and _"lxml"_ for web scraping and parsing html data from Crunchyroll and MyAnimeList. Used _"google"_ for doing google queries.
+   Or: `python -c "from discord_app import bot_invite_url; print(bot_invite_url())"`
 
-# Trying it out yourself
-Make sure you have Python 3.9 or higher
+   After the bot is in the server, you can **right‑click it in the member list → Message** to open DMs, or use a text channel for `!` commands.
 
-Type in command line:\
-**pip install -r requirements.txt**
+## Run locally
 
-_Getting a Discord API key_:
-1. Go to Discord developer portal
-2. Create new application
-3. In app, go to bots tab, create a new bot
-4. Click "Copy Token" for the new bot
+```bash
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env   # if you don’t already have one
+# Edit .env: TOKEN and DISCORD_DM_USER_ID (or DISCORD_CHANNEL_ID)
+python DiscordBot.py
+```
+
+### Environment (`.env`)
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `TOKEN` | Yes | Bot token from the portal (**secret**). |
+| `DISCORD_DM_USER_ID` | One of two | Your user ID — bot sends episode alerts to your **DMs**. |
+| `DISCORD_CHANNEL_ID` | One of two | Text channel ID — bot posts there instead. |
+
+If both are set, **DMs** win for notifications.
+
+### Troubleshooting
+
+| Error | Fix |
+|--------|-----|
+| `PrivilegedIntentsRequired` | [Developer Portal](https://discord.com/developers/applications) → your app → **Bot** → **Privileged Gateway Intents** → enable **Message Content Intent** → **Save Changes**. Restart `DiscordBot.py`. |
+| `python-dotenv could not parse` | Each `KEY=value` line must be valid: no unclosed quotes; avoid `#` inside values unless the whole value is quoted. |
+| `PyNaCl` / `davey` warnings | Safe to ignore unless you add voice features. |
+
+## Try Jikan without Discord
+
+```bash
+python scripts/jikan_season.py 2026 spring -n 5
+python scripts/enrich_title.py "Jujutsu Kaisen" --url https://www.crunchyroll.com/
+```
+
+## Project layout
+
+| Module | Role |
+|--------|------|
+| `DiscordBot.py` | Commands, embeds, notification loop |
+| `discord_app.py` | Application ID, invite URL helper, public key (for future HTTP interactions) |
+| `catalog.py` | Crunchyroll HTML snapshot + Jikan enrichment |
+| `jikan_client.py` | Rate-limited Jikan HTTP client |
+| `helper.py` | Config JSON, filters, schedule helpers |
+| `models.py` | `Anime` dataclass |
+| `config.json` | `tracking` names + `filters` genres |
+
+## Legacy note
+
+Older versions scraped MAL HTML and used Google search; that path was removed in favor of Jikan.

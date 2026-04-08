@@ -1,139 +1,218 @@
-from time import strptime
+from __future__ import annotations
+
 import datetime
-import re
 import json
+import re
+from pathlib import Path
+from typing import Any
 
-# Given an array of anime objects returns only those with genres in the desired filters
-def filter_by_genre(anime_list, filters):
-    in_filter = []
-    if len(filters) != 0:
-        for anime in anime_list:
-            for genre in anime.genres:
-                if genre in filters:
-                    in_filter.append(anime)
-                    break
-        return in_filter
-    else:
-        return anime_list
+from models import Anime
 
-# returns datetime converted to PST given the date aired and time broadcasted from MyAnimeList
-def parse_datetime(aired, broadcast):
+_ROOT = Path(__file__).resolve().parent
+CONFIG_PATH = _ROOT / "config.json"
 
-    # convert airing date and broadcast times to arrays
-    date_arr = re.sub(" to.*", "", aired.replace(",", "")).split(" ")
-    broadcast_arr = re.search("[0-9]{2}:[0-9]{2}", broadcast).span(0)
-    broadcast_arr = broadcast[broadcast_arr[0]:broadcast_arr[1]].split(":")
 
-    # parse arrays
-    year = int(date_arr[2])
-    month = strptime(date_arr[0], "%b").tm_mon
-    day = int(date_arr[1])
-    hour = int(broadcast_arr[0])
-    minute = int(broadcast_arr[1])
+def _load_config() -> dict[str, Any]:
+    with open(CONFIG_PATH, encoding="utf-8") as f:
+        return json.load(f)
 
-    # format/return datetime (JST -> PST)
-    result_datetime = datetime.datetime(year, month, day, hour, minute) - datetime.datetime(year, month, day, 14, 30) + datetime.datetime(year, month, day)
-    return result_datetime
 
-# given string of genres return as array
-def get_genre_arr(genres):
-    genre_arr = genres.split(", ")
-    for i in range(0, len(genre_arr)):
-        genre = genre_arr[i]
-        genre_arr[i] = genre[0:int(len(genre) / 2)]  
-    return genre_arr
+def _save_config(data: dict[str, Any]) -> None:
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
 
-# returns array of anime names being tracking
-def get_tracked():
-    f = open('config.json', 'r')
-    data = json.load(f)
-    return data["tracking"]
 
-# returns array of genre filters being used
-def get_filters():
-    f = open('config.json', 'r') 
-    data = json.load(f)
-    return data["filters"]
+def filter_by_genre(anime_list: list, filters: list[str]) -> list:
+    if not filters:
+        return list(anime_list)
+    out = []
+    for anime in anime_list:
+        genres = anime.genres or []
+        if any(g in filters for g in genres):
+            out.append(anime)
+    return out
 
-# adds given filter to the filters array in json file
-# iff the given filter is not already present
-def add_filter(filter):
-    f = open('config.json', 'r')
-    data = json.load(f)
 
-    if filter not in data["filters"]:
-        data["filters"].append(filter)
-    else:
+def genres_from_jikan(genre_entries: list[dict[str, Any]] | None) -> list[str]:
+    if not genre_entries:
+        return []
+    return [g["name"] for g in genre_entries if isinstance(g, dict) and g.get("name")]
+
+
+def all_genre_names_from_jikan(data: dict[str, Any]) -> list[str]:
+    names = genres_from_jikan(data.get("genres"))
+    for d in data.get("demographics") or []:
+        if isinstance(d, dict) and d.get("name"):
+            names.append(d["name"])
+    return names
+
+
+_WEEKDAY_TO_INT = {
+    "monday": 0,
+    "tuesday": 1,
+    "wednesday": 2,
+    "thursday": 3,
+    "friday": 4,
+    "saturday": 5,
+    "sunday": 6,
+}
+
+
+def _parse_weekday_label(day: str) -> int | None:
+    if not day:
+        return None
+    key = day.strip().lower().rstrip("s")
+    return _WEEKDAY_TO_INT.get(key)
+
+
+def airing_datetime_from_jikan(data: dict[str, Any]) -> datetime.datetime | None:
+    """
+    Naive local datetime for the first weekly broadcast (used by just_aired).
+    Broadcast is interpreted in Asia/Tokyo, then converted to system local time.
+    """
+    if (data.get("type") or "").upper() != "TV":
+        return None
+    broadcast = data.get("broadcast") or {}
+    time_s = broadcast.get("time")
+    day_s = broadcast.get("day")
+    if not time_s or not day_s:
+        return None
+    aired = data.get("aired") or {}
+    prop_from = (aired.get("prop") or {}).get("from") or {}
+    y, m, d = prop_from.get("year"), prop_from.get("month"), prop_from.get("day")
+    if not all(isinstance(x, int) for x in (y, m, d)):
+        from_iso = aired.get("from")
+        if not from_iso:
+            return None
+        try:
+            dt = datetime.datetime.fromisoformat(from_iso.replace("Z", "+00:00"))
+            y, m, d = dt.year, dt.month, dt.day
+        except (ValueError, TypeError):
+            return None
+    target_wd = _parse_weekday_label(day_s)
+    if target_wd is None:
+        return None
+    try:
+        hour_s, minute_s = time_s.split(":")
+        hour, minute = int(hour_s), int(minute_s)
+    except (ValueError, AttributeError):
+        return None
+
+    first = datetime.datetime(y, m, d)
+    delta = (target_wd - first.weekday()) % 7
+    air_date = first + datetime.timedelta(days=delta)
+
+    try:
+        from zoneinfo import ZoneInfo
+
+        jst = ZoneInfo("Asia/Tokyo")
+        dt_jst = datetime.datetime(
+            air_date.year, air_date.month, air_date.day, hour, minute, tzinfo=jst
+        )
+        return dt_jst.astimezone().replace(tzinfo=None)
+    except Exception:
+        return None
+
+
+def apply_jikan_anime_payload(anime: Anime, data: dict[str, Any]) -> bool:
+    """Fill Anime fields from a Jikan /anime/{id}/full `data` object. Returns False if unusable."""
+    if (data.get("type") or "").upper() != "TV":
+        return False
+    dt = airing_datetime_from_jikan(data)
+    if dt is None:
         return False
 
-    f = open('config.json', 'w')
-    json.dump(data, f)
+    anime.mal_url = data.get("url")
+    anime.datetime_aired = dt
+    score = data.get("score")
+    anime.rating = str(score) if score is not None else "N/A"
+    anime.genres = all_genre_names_from_jikan(data)
+
+    jpg = (data.get("images") or {}).get("jpg") or {}
+    if jpg.get("large_image_url"):
+        anime.image_url = jpg["large_image_url"]
+
+    ep = data.get("episodes")
+    anime.episode = ep if isinstance(ep, int) else None
     return True
 
-# adds given anime to the tracked array in json file
-# iff the given anime is not already present
-def add_tracked(anime_name):
-    f = open('config.json', 'r')
-    data = json.load(f)
 
+def get_tracked() -> list[str]:
+    return list(_load_config()["tracking"])
+
+
+def get_filters() -> list[str]:
+    return list(_load_config()["filters"])
+
+
+def add_filter(genre: str) -> bool:
+    data = _load_config()
+    if genre in data["filters"]:
+        return False
+    data["filters"].append(genre)
+    _save_config(data)
+    return True
+
+
+def add_tracked(anime_name: str) -> bool:
+    data = _load_config()
+    if anime_name in data["tracking"]:
+        return False
+    data["tracking"].append(anime_name)
+    _save_config(data)
+    return True
+
+
+def remove_filter(genre: str) -> bool:
+    data = _load_config()
+    if genre not in data["filters"]:
+        return False
+    data["filters"].remove(genre)
+    _save_config(data)
+    return True
+
+
+def remove_tracked(anime_name: str) -> bool:
+    data = _load_config()
     if anime_name not in data["tracking"]:
-        data["tracking"].append(anime_name)
-    else:
         return False
-
-    f = open('config.json', 'w')
-    json.dump(data, f)
+    data["tracking"].remove(anime_name)
+    _save_config(data)
     return True
 
-# remove given filter from the array in json file
-# iff it exists
-def remove_filter(filter):
-    f = open('config.json', 'r')
-    data = json.load(f)
 
-    if (filter in data["filters"]):
-        data["filters"].remove(filter)
-    else:
+def just_aired(anime: Anime) -> bool:
+    if anime.datetime_aired is None:
         return False
-
-    f = open('config.json', 'w')
-    json.dump(data, f)
-    return True
-
-# remove given filter from the array in json file
-# iff it exists
-def remove_tracked(anime_name):
-    f = open('config.json', 'r')
-    data = json.load(f)
-
-    if (anime_name in data["tracking"]):
-        data["tracking"].remove(anime_name)
-    else:
-        return False
-
-    f = open('config.json', 'w')
-    json.dump(data, f)
-    return True
-
-# returns true if anime was just released, false otherwise
-def just_aired(anime):
     curr_day = datetime.datetime.today().strftime("%A")
     curr_time = datetime.datetime.now().time().replace(second=0, microsecond=0)
+    return (
+        curr_day == anime.datetime_aired.strftime("%A")
+        and curr_time == anime.datetime_aired.time().replace(second=0, microsecond=0)
+    )
 
-    anime_air_day = anime.datetime_aired.strftime("%A")
-    anime_air_time = anime.datetime_aired.time()
 
-    return curr_day == anime_air_day and curr_time == anime_air_time
-
-def get_last_episode(anime):
+def get_last_episode(anime: Anime) -> int:
+    if anime.episode is not None:
+        return anime.episode
+    if anime.datetime_aired is None:
+        return 1
     episodes = 0
     curr_datetime = anime.datetime_aired
-
-    if anime.episode != None:
-        return anime.episode
-
     while curr_datetime.date() < datetime.datetime.now().date():
         episodes += 1
         curr_datetime += datetime.timedelta(days=7)
-    
     return episodes if episodes != 0 else 1
+
+
+def rating_stars_display(rating: str) -> tuple[str, str]:
+    """Returns (fraction_out_of_5_str, star_emoji_row) for embed; handles N/A."""
+    if rating in ("N/A", "", None):
+        return ("—", "—")
+    try:
+        mal_10 = float(rating)
+    except (TypeError, ValueError):
+        return ("—", "—")
+    out_of_5 = round(mal_10 / 2, 2)
+    stars = round(mal_10 / 2) * "⭐"
+    return (str(out_of_5), stars)
